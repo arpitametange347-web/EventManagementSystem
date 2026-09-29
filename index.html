@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campus Events</title>
+<style>
+:root{--bg:#f3f5f1;--ink:#1c2620;--mute:#5d6b62;--line:#d5dbd3;--card:#fff;--accent:#1f5f4a;--warn:#a3331f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Georgia,serif}
+h1,h2,h3,button,input,select,label,.sans{font-family:'Trebuchet MS',Verdana,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--line)}
+header h1{font-size:1.1rem;margin:0}
+main{max-width:860px;margin:0 auto;padding:24px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:20px;margin-bottom:16px}
+h2{font-size:1.4rem;margin:0 0 12px}
+label{display:block;font-size:.85rem;margin:12px 0 4px;color:var(--mute)}
+input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font-size:1rem}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button{padding:10px 18px;border:0;border-radius:4px;background:var(--accent);color:#fff;font-size:.95rem;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.msg{min-height:1.4em;margin-top:12px;font-family:'Trebuchet MS',sans-serif;font-size:.9rem}
+.msg.err{color:var(--warn)}.msg.ok{color:var(--accent)}
+.event{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.event h3{margin:0 0 2px;font-size:1.1rem}
+.meta{color:var(--mute);font-size:.9rem}
+.seats{font-family:'Trebuchet MS',sans-serif;font-size:.85rem;padding:3px 10px;border-radius:99px;border:1px solid var(--line);margin-right:8px}
+.seats.full{color:var(--warn);border-color:var(--warn)}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.9rem}
+td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header><h1>Campus Events</h1><div id="who" class="sans hidden"><span id="whoName"></span> <button class="ghost" id="logout">Log out</button></div></header>
+<main>
+  <section id="loginPage" class="card" style="max-width:420px;margin:40px auto">
+    <h2>Log in</h2>
+    <label for="lRole">Log in as</label>
+    <select id="lRole"><option value="student">Student</option><option value="admin">Admin</option></select>
+    <label for="lEmail">Email</label><input id="lEmail" type="email">
+    <label for="lPassword">Password</label><input id="lPassword" type="password">
+    <div style="margin-top:16px"><button id="loginBtn">Log in</button></div>
+    <div id="lMsg" class="msg"></div>
+    <p class="meta sans">New here? <a href="#" id="toRegister">Create an account</a></p>
+  </section>
+  <section id="registerPage" class="card hidden" style="max-width:420px;margin:40px auto">
+    <h2>Create account</h2>
+    <label for="rRole">Register as</label>
+    <select id="rRole"><option value="student">Student</option><option value="admin">Admin</option></select>
+    <label for="rName">Full name</label><input id="rName">
+    <label for="rEmail">Email</label><input id="rEmail" type="email">
+    <label for="rPassword">Password</label><input id="rPassword" type="password">
+    <div style="margin-top:16px"><button id="registerBtn">Create account</button></div>
+    <div id="rMsg" class="msg"></div>
+    <p class="meta sans">Already have an account? <a href="#" id="toLogin">Log in</a></p>
+  </section>
+
+  <section id="admin" class="hidden">
+    <div class="card">
+      <h2>Create an event</h2>
+      <label for="evName">Event name</label><input id="evName">
+      <div class="row">
+        <div><label for="evDate">Date</label><input id="evDate" type="date"></div>
+        <div><label for="evTime">Time</label><input id="evTime" type="time"></div>
+        <div><label for="evSeats">Maximum seats</label><input id="evSeats" type="number" min="1"></div>
+      </div>
+      <div style="margin-top:16px"><button id="createBtn">Create event</button></div>
+      <div id="createMsg" class="msg"></div>
+    </div>
+    <h2>Registrations</h2>
+    <div id="adminList"></div>
+  </section>
+
+  <section id="student" class="hidden">
+    <h2>Upcoming events</h2>
+    <div id="msgStudent" class="msg"></div>
+    <div id="studentList"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const say = (el, t, type) => { el.textContent = t; el.className = 'msg ' + (type || ''); };
+
+// Data: users [{id,name,email,password,role}], events [{id,name,date,time,maxSeats,attendees:[userId]}]
+let authView = 'login';
+let session = load('session', null);
+
+function startSession(user) {
+  session = { id: user.id, name: user.name, role: user.role };
+  save('session', session);
+  show();
+}
+$('toRegister').onclick = e => { e.preventDefault(); authView = 'register'; show(); };
+$('toLogin').onclick = e => { e.preventDefault(); authView = 'login'; show(); };
+
+$('registerBtn').onclick = () => {
+  const name = $('rName').value.trim(), email = $('rEmail').value.trim().toLowerCase();
+  const password = $('rPassword').value, role = $('rRole').value;
+  const users = load('users', []);
+  if (!name || !email || !password) return say($('rMsg'), 'Name, email and password are required.', 'err');
+  if (password.length < 6) return say($('rMsg'), 'Password must be at least 6 characters.', 'err');
+  if (users.some(u => u.email === email)) return say($('rMsg'), 'That email is already registered.', 'err');
+  const user = { id: Date.now() + '' + Math.random().toString(36).slice(2, 6), name, email, password, role };
+  users.push(user); save('users', users);
+  startSession(user);
+};
+
+$('loginBtn').onclick = () => {
+  const email = $('lEmail').value.trim().toLowerCase(), password = $('lPassword').value, role = $('lRole').value;
+  const user = load('users', []).find(u => u.email === email && u.password === password && u.role === role);
+  if (!user) return say($('lMsg'), 'Wrong email, password or role.', 'err');
+  startSession(user);
+};
+
+$('logout').onclick = () => { localStorage.removeItem('session'); session = null; authView = 'login'; show(); };
+
+function show() {
+  const on = !!session;
+  $('loginPage').classList.toggle('hidden', on || authView !== 'login');
+  $('registerPage').classList.toggle('hidden', on || authView !== 'register');
+  $('who').classList.toggle('hidden', !on);
+  $('admin').classList.toggle('hidden', !(on && session.role === 'admin'));
+  $('student').classList.toggle('hidden', !(on && session.role === 'student'));
+  if (!on) return;
+  $('whoName').textContent = `${session.name} (${session.role})`;
+  render();
+}
+
+const remaining = e => e.maxSeats - e.attendees.length;
+const badge = e => `<span class="seats ${remaining(e) === 0 ? 'full' : ''}">${remaining(e)} of ${e.maxSeats} seats left</span>`;
+const isUpcoming = e => new Date(e.date + 'T' + e.time) >= new Date();
+const sorted = () => load('events', []).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+
+function render() {
+  const all = sorted();
+  const events = session.role === 'student' ? all.filter(isUpcoming) : all;
+  if (session.role === 'student') {
+    $('studentList').innerHTML = events.length ? events.map(e => {
+      const mine = e.attendees.includes(session.id);
+      const full = remaining(e) <= 0;
+      return `<div class="card event">
+        <div><h3>${esc(e.name)}</h3><div class="meta">${esc(e.date)} at ${esc(e.time)}</div></div>
+        <div>${badge(e)}<button class="reg" data-id="${e.id}" ${mine || full ? 'disabled' : ''}>${mine ? 'Registered' : full ? 'Event full' : 'Register'}</button></div>
+      </div>`;
+    }).join('') : '<p class="meta">No upcoming events yet. Check back soon.</p>';
+  } else {
+    const users = load('users', []);
+    $('adminList').innerHTML = events.length ? events.map(e => `
+      <div class="card">
+        <div class="event"><div><h3>${esc(e.name)}</h3><div class="meta">${esc(e.date)} at ${esc(e.time)}</div></div>
+        <div>${badge(e)}<button class="ghost att" data-id="${e.id}">View attendees</button></div></div>
+        <div id="att-${e.id}" class="hidden">${e.attendees.length ? `<table><tr><th>Name</th><th>Email</th></tr>${e.attendees.map(id => {
+          const u = users.find(x => x.id === id) || {}; return `<tr><td>${esc(u.name || '')}</td><td>${esc(u.email || '')}</td></tr>`; }).join('')}</table>`
+          : '<p class="meta">No registrations yet.</p>'}</div>
+      </div>`).join('') : '<p class="meta">No events yet. Create your first one above.</p>';
+  }
+}
+
+document.addEventListener('click', e => {
+  const t = e.target;
+  if (t.classList.contains('reg')) {
+    const events = load('events', []);
+    const ev = events.find(x => x.id === t.dataset.id);
+    if (!ev) return say($('msgStudent'), 'Event not found.', 'err');
+    if (!isUpcoming(ev)) say($('msgStudent'), 'This event has already happened.', 'err');
+    else if (ev.attendees.includes(session.id)) say($('msgStudent'), 'You are already registered for this event.', 'err');
+    else if (remaining(ev) <= 0) say($('msgStudent'), 'This event is full. No seats are left.', 'err');
+    else { ev.attendees.push(session.id); save('events', events); say($('msgStudent'), 'You are registered.', 'ok'); }
+    render();
+  }
+  if (t.classList.contains('att')) $('att-' + t.dataset.id).classList.toggle('hidden');
+});
+
+$('createBtn').onclick = () => {
+  const name = $('evName').value.trim(), date = $('evDate').value, time = $('evTime').value;
+  const maxSeats = Number($('evSeats').value);
+  if (!name || !date || !time || !Number.isInteger(maxSeats) || maxSeats < 1)
+    return say($('createMsg'), 'Name, date, time and a seat count of 1 or more are required.', 'err');
+  const events = load('events', []);
+  events.push({ id: Date.now() + '', name, date, time, maxSeats, attendees: [] });
+  save('events', events);
+  say($('createMsg'), 'Event created.', 'ok');
+  ['evName', 'evDate', 'evTime', 'evSeats'].forEach(i => $(i).value = '');
+  render();
+};
+
+show();
+</script>
+</body>
+</html>
